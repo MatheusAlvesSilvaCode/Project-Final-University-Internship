@@ -68,6 +68,8 @@ def classificar_evento(evento, df):
     
     # Conta quantas estações tiveram fator de pico > 10
     estacoes_com_trigger = dados_evento[dados_evento["valor"] > 10]["estacao"].nunique()
+    print('Mostrando como está os dados de evento AQUI:::::')
+    print(dados_evento.head())
     
     # Total de estações que registraram o evento
     total_estacoes = dados_evento["estacao"].nunique()
@@ -125,10 +127,10 @@ app.layout = html.Div([
                 
                 # Grupo de opções 3
                 html.Div([
-                    html.H6("CONFIGURAÇÕES", style={"color": "#555", "padding": "5px 10px", "marginTop": "20px"}),
+                    html.H6("OUTRAS OPÇÕES 2", style={"color": "#555", "padding": "5px 10px", "marginTop": "20px"}),
                     dbc.Nav([
-                        dbc.NavLink("Configuração 1", href="#", style={"padding": "8px 15px"}),
-                        dbc.NavLink("Configuração 2", href="#", style={"padding": "8px 15px"}),
+                        dbc.NavLink("Opção 6", href="#", style={"padding": "8px 15px"}),
+                        dbc.NavLink("Opção 7", href="#", style={"padding": "8px 15px"}),
                     ], vertical=True, pills=True),
                 ]),
             ], style={
