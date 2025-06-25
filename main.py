@@ -12,6 +12,7 @@ from dash import no_update
 import tempfile
 from dash.dcc import Download
 from dash.exceptions import PreventUpdate
+from functools import lru_cache
 
 # Inicializa o aplicativo Dash
 app = Dash(__name__, external_stylesheets=[dbc.themes.FLATLY])
@@ -32,23 +33,23 @@ MAPEAMENTO_ESTACOES = {
 }
 
 # Carrega os dados com tratamento de erros
-try:
-    df_freq_consolidado = pd.read_csv(caminho_freq)
-    print("Dados de frequência carregados. Colunas:", df_freq_consolidado.columns.tolist())
-except Exception as erro:
-    print(f"Erro ao carregar freq_consolidado.csv: {erro}")
-    df_freq_consolidado = pd.DataFrame()
+try: # Tenta executar o código dentro deste bloco
+    df_freq_consolidado = pd.read_csv(caminho_freq) # df_freq_consolidado recebe, a leitura do csv, caminho_freq.
+    print("Dados de frequência carregados. Colunas:", df_freq_consolidado.columns.tolist()) # Se der certo, mostra as colunas carregadas
+except Exception as erro: # Caso dê erro: 
+    print(f"Erro ao carregar freq_consolidado.csv: {erro}") # Mostra qual foi o erro
+    df_freq_consolidado = pd.DataFrame() # Cria um DataFrame vazio para evitar que o resto do código quebre
 
-try:
-    df_dados_consolidado = pd.read_csv(caminho_dados)
-    print("Dados temporais carregados. Colunas:", df_dados_consolidado.columns.tolist())
-except Exception as erro:
-    print(f"Erro ao carregar data_consolidado.csv: {erro}")
-    df_dados_consolidado = pd.DataFrame()
+try: # Tente
+    df_dados_consolidado = pd.read_csv(caminho_dados) # df_consolidado recebe o caminho lido 
+    print("Dados temporais carregados. Colunas:", df_dados_consolidado.columns.tolist()) # Se der certo, mostra as colunas carregadas
+except Exception as erro: # Caso dê erro:
+    print(f"Erro ao carregar data_consolidado.csv: {erro}") # Me mostra o erro.
+    df_dados_consolidado = pd.DataFrame() # Cria um DataFrame vazio para evitar que o resto do código quebre
 
 # Carrega os dados dos eventos
-try:
-    caminho_eventos = os.path.join(caminho_base, "events", "2025", "2025")
+try: # Tente 
+    caminho_eventos = os.path.join(caminho_base, "events", "2025", "2025") # abre o caminho json, usando o caminho_base e acessando subpastas 'events','2025','2025' 
     df_eventos = carregar_eventos(caminho_eventos)
     estacoes_unicas = df_eventos["estacao"].unique()
     eventos_unicos = df_eventos["evento"].unique()
@@ -87,20 +88,27 @@ def classificar_evento(evento, df):
     
     return classificacao, racio
 
+# Cache para melhorar performance da classificação
+@lru_cache(maxsize=None)
+def get_classificacao(evento):
+    return classificar_evento(evento, df_eventos)[0]
+
+#--------------------------LAYOUT--------------------------
+
 # Layout do aplicativo
 app.layout = html.Div([
     # Menu flutuante
     html.Div(
         dbc.DropdownMenu(
             children=[
-                dbc.DropdownMenuItem("Topo", id="botao-topo"),
-                dbc.DropdownMenuItem("Séries de Aceleração", id="botao-series"),
-                dbc.DropdownMenuItem("Espectros de Frequência", id="botao-espectros"),
+                dbc.DropdownMenuItem("Topo", id="botao-topo"), # Criando a opção de 'Topo' no menu
+                dbc.DropdownMenuItem("Séries de Aceleração", id="botao-series"), # Criando a opção de 'Séries de Aceleração' no menu
+                dbc.DropdownMenuItem("Espectros de Frequência", id="botao-espectros"), # Criando a opção de 'Espectros de Frequências' no menu
             ],
             label="Menu",
             nav=True,
             in_navbar=True,
-            style={
+            style={ # Adicionando o estilo e layout do nosso menu
                 "position": "fixed",
                 "top": "20px",
                 "right": "20px",
@@ -109,18 +117,30 @@ app.layout = html.Div([
         ),
     ),
     
-    html.Div(id='dummy-div', style={'display': 'none'}),
-    
-    html.H1("Relatório de Registros Sísmicos", id="topo", style={"textAlign": "center", "marginBottom": "50px", "marginTop": "50px"}),
+    html.Div(id='dummy-div', style={'display': 'none'}), # criando Div 'fantasma', que não é exibida mas ainda existe código.
     
     # Filtro de Eventos e Botão PDF
     html.Div([
-        html.H4("Filtrar por Evento:", style={"marginLeft": "20px", "marginBottom": "10px"}),
+        html.H4("Filtrar por Evento:", id="topo", style={"marginLeft": "20px", "marginBottom": "10px"}),
         dbc.Row([
             dbc.Col(
                 dcc.Dropdown(
                     id='filtro-evento',
-                    options=[{'label': evento, 'value': evento} for evento in sorted(eventos_unicos)],
+                    options=[{
+                        'label': html.Span([
+                            evento,
+                            html.Span(
+                                f" ({get_classificacao(evento)})",
+                                style={
+                                    'fontSize': '12px',
+                                    'color': '#666',
+                                    'marginLeft': '5px',
+                                    'fontStyle': 'italic'
+                                }
+                            )
+                        ]),
+                        'value': evento
+                    } for evento in sorted(eventos_unicos)],
                     value=None,
                     placeholder="Selecione um evento...",
                     style={"width": "300px", "marginLeft": "20px", "marginBottom": "20px"}
@@ -131,7 +151,7 @@ app.layout = html.Div([
                 dbc.Button("Baixar Relatório em PDF", 
                           id="btn-gerar-pdf",
                           color="primary",
-                          style={"float": "right", "marginRight": "20px", "marginBottom": "20px"}),
+                          style={"float": "right", "marginRight": "20px", "marginBottom": "10px", "marginTop": "30px"}),
                 width=6
             )
         ])
@@ -220,8 +240,6 @@ def gerar_pdf(n_clicks, conteudo_aba, estacao_selecionada, evento_selecionado):
     """
     
     # Adiciona o conteúdo principal (simplificado para o PDF)
-    # Nota: Esta é uma versão simplificada. Para uma conversão mais fiel, você precisaria
-    # de uma solução mais complexa para converter os componentes Dash em HTML
     html_content += """
     <div class="content">
         <p>Relatório gerado a partir do sistema de monitoramento sísmico.</p>
@@ -277,11 +295,9 @@ def mostrar_conteudo_estacao(estacao_selecionada, evento_selecionado):
     # Classifica o evento corretamente
     classificacao, racio = classificar_evento(evento_atual, df_eventos)
     
-    # Processamento dos dados - CORREÇÃO AQUI
-    # Pegamos todas as estações que registraram o evento (não apenas as com trigger > 10)
+    # Processamento dos dados
     estacoes_ativas = df_eventos[df_eventos["evento"] == evento_atual]["estacao"].unique()
     
-    # Pegamos todas as estações que registraram o evento com valor > 10 em qualquer direção
     estacoes_com_evento = df_eventos[
         (df_eventos["evento"] == evento_atual) & 
         (df_eventos["valor"] > 10)
@@ -301,11 +317,9 @@ def mostrar_conteudo_estacao(estacao_selecionada, evento_selecionado):
 
     # Gráficos de séries temporais
     if not df_dados_consolidado.empty:
-        # Obter o código correspondente no dados_consolidado
         codigo_estacao = MAPEAMENTO_ESTACOES.get(estacao_selecionada, '')
         
         if codigo_estacao:
-            # Converter para string e remover espaços extras
             df_dados_consolidado['estacao'] = df_dados_consolidado['estacao'].astype(str).str.strip()
             df_dados_consolidado['evento'] = df_dados_consolidado['evento'].astype(str).str.strip()
             
@@ -324,7 +338,6 @@ def mostrar_conteudo_estacao(estacao_selecionada, evento_selecionado):
                     html.P(f"Eventos: {df_dados_consolidado['evento'].unique()}")
                 ])
             else:
-                # Calcular limites comuns para os eixos Y
                 y_min = min(series_filtradas["T"].min(), 
                            series_filtradas["R"].min(), 
                            series_filtradas["V"].min()) * 1.1
@@ -348,7 +361,7 @@ def mostrar_conteudo_estacao(estacao_selecionada, evento_selecionado):
                         margin=dict(l=40, r=40, t=40, b=40),
                         height=300,
                         plot_bgcolor='white',
-                        yaxis=dict(range=[y_min, y_max])  # Escala fixa
+                        yaxis=dict(range=[y_min, y_max])
                     )
                     return dcc.Graph(figure=figura, style={'margin-bottom': '20px'})
                 
@@ -364,11 +377,9 @@ def mostrar_conteudo_estacao(estacao_selecionada, evento_selecionado):
 
     # Gráficos de espectros de frequência
     if not df_freq_consolidado.empty:
-        # Obter o código correspondente no dados_consolidado
         codigo_estacao = MAPEAMENTO_ESTACOES.get(estacao_selecionada, '')
         
         if codigo_estacao:
-            # Converter para string e remover espaços extras
             df_freq_consolidado['estacao'] = df_freq_consolidado['estacao'].astype(str).str.strip()
             df_freq_consolidado['evento'] = df_freq_consolidado['evento'].astype(str).str.strip()
             
@@ -387,7 +398,6 @@ def mostrar_conteudo_estacao(estacao_selecionada, evento_selecionado):
                     html.P(f"Eventos: {df_freq_consolidado['evento'].unique()}")
                 ])
             else:
-                # Calcular limites comuns para os eixos Y
                 y_min_freq = 0
                 y_max_freq = max(freq_filtradas["T"].max(), 
                                 freq_filtradas["R"].max(), 
@@ -409,7 +419,7 @@ def mostrar_conteudo_estacao(estacao_selecionada, evento_selecionado):
                         margin=dict(l=40, r=40, t=40, b=40),
                         height=300,
                         plot_bgcolor='white',
-                        yaxis=dict(range=[y_min_freq, y_max_freq])  # Escala fixa
+                        yaxis=dict(range=[y_min_freq, y_max_freq])
                     )
                     return dcc.Graph(figure=figura, style={'margin-bottom': '20px'})
                 
@@ -425,13 +435,12 @@ def mostrar_conteudo_estacao(estacao_selecionada, evento_selecionado):
 
     # Layout da página
     return html.Div([
-        html.H3('MONITORAMENTO DA BARRAGEM', style={"textAlign": "center", "marginTop": "30px"}),
-        html.H3('RELATÓRIO SÍSMICO', style={"textAlign": "center"}),
+        html.H3('RELATÓRIO DE EVENTO SÍSMICO', style={"textAlign": "center", "marginTop": "30px"}),
+        html.H3('SOS DA BARRAGEM DE DAIVÕES', style={"textAlign": "center"}),
         html.H4(f"Estação: {estacao_selecionada}", style={"textAlign": "center"}),
         html.P(f"Trigger: {trigger}", style={"textAlign": "center"}),
         html.P(f"Evento selecionado: {evento_atual}", style={"textAlign": "center", "fontWeight": "bold"}),
 
-        # Seção de Resumo - CORREÇÃO APLICADA AQUI
         html.Div([
             html.H5('Resumo', style={"fontWeight": "bold", "marginTop": "20px"}),
             html.Div([
@@ -454,7 +463,6 @@ def mostrar_conteudo_estacao(estacao_selecionada, evento_selecionado):
             ], style={"marginBottom": "20px"})
         ], style={"marginLeft": "15px"}),
 
-        # Tabelas
         dbc.Row([
             dbc.Col(html.Div([
                 html.H5("Picos de Aceleração [mg]", style={"textAlign": "center"}),
@@ -479,13 +487,11 @@ def mostrar_conteudo_estacao(estacao_selecionada, evento_selecionado):
             ]), width=6)
         ], justify="center"),
 
-        # Seção de Séries Temporais
         html.H1('Séries de Aceleração', id="series-aceleracao",
               style={"textAlign": "center", "margin": "20px 0 20px 20px", "marginTop": "30px"}),
         
         graficos_series,
         
-        # Seção de Espectros
         html.H1('Espectros de Frequência das Séries de Aceleração', id="espectros-frequencia",
               style={"textAlign": "center", "margin": "20px 0 20px 20px", "marginTop": "30px"}),
         
