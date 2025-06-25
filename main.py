@@ -97,75 +97,125 @@ def get_classificacao(evento):
 
 # Layout do aplicativo
 app.layout = html.Div([
-    # Menu flutuante
-    html.Div(
-        dbc.DropdownMenu(
-            children=[
-                dbc.DropdownMenuItem("Topo", id="botao-topo"), # Criando a opção de 'Topo' no menu
-                dbc.DropdownMenuItem("Séries de Aceleração", id="botao-series"), # Criando a opção de 'Séries de Aceleração' no menu
-                dbc.DropdownMenuItem("Espectros de Frequência", id="botao-espectros"), # Criando a opção de 'Espectros de Frequências' no menu
-            ],
-            label="Menu",
-            nav=True,
-            in_navbar=True,
-            style={ # Adicionando o estilo e layout do nosso menu
-                "position": "fixed",
-                "top": "20px",
-                "right": "20px",
-                "zIndex": "1000",
-            },
-        ),
-    ),
-    
-    html.Div(id='dummy-div', style={'display': 'none'}), # criando Div 'fantasma', que não é exibida mas ainda existe código.
-    
-    # Filtro de Eventos e Botão PDF
-    html.Div([
-        html.H4("Filtrar por Evento:", id="topo", style={"marginLeft": "20px", "marginBottom": "10px"}),
-        dbc.Row([
-            dbc.Col(
-                dcc.Dropdown(
-                    id='filtro-evento',
-                    options=[{
-                        'label': html.Span([
-                            evento,
-                            html.Span(
-                                f" ({get_classificacao(evento)})",
-                                style={
-                                    'fontSize': '12px',
-                                    'color': '#666',
-                                    'marginLeft': '5px',
-                                    'fontStyle': 'italic'
-                                }
-                            )
-                        ]),
-                        'value': evento
-                    } for evento in sorted(eventos_unicos)],
-                    value=None,
-                    placeholder="Selecione um evento...",
-                    style={"width": "300px", "marginLeft": "20px", "marginBottom": "20px"}
+    # Layout principal com menu lateral e conteúdo
+    dbc.Row([
+        # Menu Lateral (coluna esquerda) - AGORA FIXO
+        dbc.Col([
+            html.Div([
+                html.H4("Menu Principal", style={"padding": "10px", "borderBottom": "1px solid #ddd", "marginBottom": "10px"}),
+                
+                # Grupo de opções 1
+                html.Div([
+                    html.H6("OPÇÕES PRINCIPAIS", style={"color": "#555", "padding": "5px 10px", "marginTop": "15px"}),
+                    dbc.Nav([
+                        dbc.NavLink("Opção 1", href="#", active=True, style={"borderLeft": "3px solid #007bff", "padding": "8px 15px"}),
+                        dbc.NavLink("Opção 2", href="#", style={"padding": "8px 15px"}),
+                        dbc.NavLink("Opção 3", href="#", style={"padding": "8px 15px"}),
+                    ], vertical=True, pills=True),
+                ]),
+                
+                # Grupo de opções 2
+                html.Div([
+                    html.H6("OUTRAS OPÇÕES", style={"color": "#555", "padding": "5px 10px", "marginTop": "20px"}),
+                    dbc.Nav([
+                        dbc.NavLink("Opção 4", href="#", style={"padding": "8px 15px"}),
+                        dbc.NavLink("Opção 5", href="#", style={"padding": "8px 15px"}),
+                    ], vertical=True, pills=True),
+                ]),
+                
+                # Grupo de opções 3
+                html.Div([
+                    html.H6("CONFIGURAÇÕES", style={"color": "#555", "padding": "5px 10px", "marginTop": "20px"}),
+                    dbc.Nav([
+                        dbc.NavLink("Configuração 1", href="#", style={"padding": "8px 15px"}),
+                        dbc.NavLink("Configuração 2", href="#", style={"padding": "8px 15px"}),
+                    ], vertical=True, pills=True),
+                ]),
+            ], style={
+                "position": "fixed",  # TORNA O MENU FIXO
+                "width": "16.666%",    # LARGURA EQUIVALENTE A 2 COLUNAS (12 colunas no total)
+                "height": "100vh",     # ALTURA TOTAL DA VIEWPORT
+                "overflowY": "auto",   # PERMITE SCROLL INTERNO SE NECESSÁRIO
+                "backgroundColor": "#f8f9fa",
+                "borderRight": "1px solid #dee2e6",
+                "padding": "10px",
+                "zIndex": "100"       # GARANTE QUE FIQUE ACIMA DE OUTROS ELEMENTOS
+            })
+        ], width=2, style={"padding": "0"}),
+        
+        # Conteúdo principal (coluna direita)
+        dbc.Col([
+            # Menu flutuante (mantido da versão original)
+            html.Div(
+                dbc.DropdownMenu(
+                    children=[
+                        dbc.DropdownMenuItem("Topo", id="botao-topo"),
+                        dbc.DropdownMenuItem("Séries de Aceleração", id="botao-series"),
+                        dbc.DropdownMenuItem("Espectros de Frequência", id="botao-espectros"),
+                    ],
+                    label="Menu",
+                    nav=True,
+                    in_navbar=True,
+                    style={
+                        "position": "fixed",
+                        "top": "20px",
+                        "right": "20px",
+                        "zIndex": "1000",
+                    },
                 ),
-                width=6
             ),
-            dbc.Col(
-                dbc.Button("Baixar Relatório em PDF", 
-                          id="btn-gerar-pdf",
-                          color="primary",
-                          style={"float": "right", "marginRight": "20px", "marginBottom": "10px", "marginTop": "30px"}),
-                width=6
-            )
-        ])
-    ]),
-    
-    # Componente para download do PDF
-    dcc.Download(id="download-pdf"),
-    
-    dbc.Tabs(
-        id="abas-estacoes",
-        active_tab=estacoes_unicas[0] if len(estacoes_unicas) > 0 else None,
-        children=[dbc.Tab(label=estacao, tab_id=estacao) for estacao in estacoes_unicas]
-    ),
-    html.Div(id="conteudo-aba", style={"padding": "20px"})
+            
+            html.Div(id='dummy-div', style={'display': 'none'}),
+            
+            # Filtro de Eventos e Botão PDF
+            html.Div([
+                html.H4("Filtrar por Evento:", id="topo", style={"marginLeft": "20px", "marginBottom": "10px"}),
+                dbc.Row([
+                    dbc.Col(
+                        dcc.Dropdown(
+                            id='filtro-evento',
+                            options=[{
+                                'label': html.Span([
+                                    evento,
+                                    html.Span(
+                                        f" ({get_classificacao(evento)})",
+                                        style={
+                                            'fontSize': '12px',
+                                            'color': '#666',
+                                            'marginLeft': '5px',
+                                            'fontStyle': 'italic'
+                                        }
+                                    )
+                                ]),
+                                'value': evento
+                            } for evento in sorted(eventos_unicos)],
+                            value=None,
+                            placeholder="Selecione um evento...",
+                            style={"width": "300px", "marginLeft": "20px", "marginBottom": "20px"}
+                        ),
+                        width=6
+                    ),
+                    dbc.Col(
+                        dbc.Button("Baixar Relatório em PDF", 
+                                id="btn-gerar-pdf",
+                                color="primary",
+                                style={"float": "right", "marginRight": "20px", "marginBottom": "10px", "marginTop": "30px"}),
+                        width=6
+                    )
+                ])
+            ]),
+            
+            # Componente para download do PDF
+            dcc.Download(id="download-pdf"),
+            
+            dbc.Tabs(
+                id="abas-estacoes",
+                active_tab=estacoes_unicas[0] if len(estacoes_unicas) > 0 else None,
+                children=[dbc.Tab(label=estacao, tab_id=estacao) for estacao in estacoes_unicas]
+            ),
+            html.Div(id="conteudo-aba", style={"padding": "20px"})
+        ], width=10, style={"marginLeft": "16.666%"})  # ADICIONA MARGEM PARA COMPENSAR O MENU FIXO
+    ])
 ])
 
 # Callback para rolagem suave
