@@ -13,9 +13,10 @@ import tempfile
 from dash.dcc import Download
 from dash.exceptions import PreventUpdate
 from functools import lru_cache
+from mapa_barragem import layout as layout_mapa_barragem
 
 # Inicializa o aplicativo Dash
-app = Dash(__name__, external_stylesheets=[dbc.themes.FLATLY])
+app = Dash(__name__, external_stylesheets=[dbc.themes.FLATLY], suppress_callback_exceptions=True)
 
 # Configuração dos caminhos dos arquivos
 caminho_base = r'C:\Users\mathe\Desktop\Estágio\Final'
@@ -95,10 +96,94 @@ def classificar_evento(evento, df):
 def get_classificacao(evento):
     return classificar_evento(evento, df_eventos)[0]
 
+# Função para encontrar os 5 maiores picos em um espectro de frequência
+def encontrar_picos(serie_frequencia, serie_amplitude, num_picos=5):
+    # Encontra os índices dos picos
+    picos_indices = np.argsort(serie_amplitude)[-num_picos:]
+    # Ordena por frequência para manter a ordem na tabela
+    picos_indices_ordenados = picos_indices[np.argsort(serie_frequencia[picos_indices])]
+    # Retorna os pares (frequência, amplitude)
+    return [(serie_frequencia[i], serie_amplitude[i]) for i in picos_indices_ordenados]
+
 #--------------------------LAYOUT--------------------------
+
+# Layout da página de relatórios
+layout_relatorios = html.Div([
+    # Menu flutuante (mantido da versão original)
+    html.Div(
+        dbc.DropdownMenu(
+            children=[
+                dbc.DropdownMenuItem("Topo", id="botao-topo"),
+                dbc.DropdownMenuItem("Séries de Aceleração", id="botao-series"),
+                dbc.DropdownMenuItem("Espectros de Frequência", id="botao-espectros"),
+            ],
+            label="Menu",
+            nav=True,
+            in_navbar=True,
+            style={
+                "position": "fixed",
+                "top": "20px",
+                "right": "20px",
+                "zIndex": "1000",
+            },
+        ),
+    ),
+    
+    html.Div(id='dummy-div', style={'display': 'none'}),
+    
+    # Filtro de Eventos e Botão PDF
+    html.Div([
+        html.H4("Filtrar por Evento:", id="topo", style={"marginLeft": "20px", "marginBottom": "10px"}),
+        dbc.Row([
+            dbc.Col(
+                dcc.Dropdown(
+                    id='filtro-evento',
+                    options=[{
+                        'label': html.Span([
+                            evento,
+                            html.Span(
+                                f" ({get_classificacao(evento)})",
+                                style={
+                                    'fontSize': '12px',
+                                    'color': '#666',
+                                    'marginLeft': '5px',
+                                    'fontStyle': 'italic'
+                                }
+                            )
+                        ]),
+                        'value': evento
+                    } for evento in sorted(eventos_unicos)],
+                    value=None,
+                    placeholder="Selecione um evento...",
+                    style={"width": "300px", "marginLeft": "20px", "marginBottom": "20px"}
+                ),
+                width=6
+            ),
+            dbc.Col(
+                dbc.Button("Baixar Relatório em PDF", 
+                        id="btn-gerar-pdf",
+                        color="primary",
+                        style={"float": "right", "marginRight": "20px", "marginBottom": "20px", "marginTop": "30px"}),
+                width=6
+            )
+        ])
+    ]),
+    
+    # Componente para download do PDF
+    dcc.Download(id="download-pdf"),
+    
+    dbc.Tabs(
+        id="abas-estacoes",
+        active_tab=estacoes_unicas[0] if len(estacoes_unicas) > 0 else None,
+        children=[dbc.Tab(label=estacao, tab_id=estacao) for estacao in estacoes_unicas]
+    ),
+    html.Div(id="conteudo-aba", style={"padding": "20px"})
+])
 
 # Layout do aplicativo
 app.layout = html.Div([
+    dcc.Location(id='url', refresh=False),
+    
     # Layout principal com menu lateral e conteúdo
     dbc.Row([
         # Menu Lateral (coluna esquerda) - AGORA FIXO
@@ -110,9 +195,8 @@ app.layout = html.Div([
                 html.Div([
                     html.H6("OPÇÕES PRINCIPAIS", style={"color": "#555", "padding": "5px 10px", "marginTop": "15px"}),
                     dbc.Nav([
-                        dbc.NavLink("Opção 1", href="#", active=True, style={"borderLeft": "3px solid #007bff", "padding": "8px 15px"}),
-                        dbc.NavLink("Opção 2", href="#", style={"padding": "8px 15px"}),
-                        dbc.NavLink("Opção 3", href="#", style={"padding": "8px 15px"}),
+                        dbc.NavLink("Relatórios", href="/", active="exact", style={"padding": "8px 15px"}),
+                        dbc.NavLink("Mapa Barragem", href="/mapa-barragem", active="exact", style={"padding": "8px 15px"}),
                     ], vertical=True, pills=True),
                 ]),
                 
@@ -147,75 +231,7 @@ app.layout = html.Div([
         
         # Conteúdo principal (coluna direita)
         dbc.Col([
-            # Menu flutuante (mantido da versão original)
-            html.Div(
-                dbc.DropdownMenu(
-                    children=[
-                        dbc.DropdownMenuItem("Topo", id="botao-topo"),
-                        dbc.DropdownMenuItem("Séries de Aceleração", id="botao-series"),
-                        dbc.DropdownMenuItem("Espectros de Frequência", id="botao-espectros"),
-                    ],
-                    label="Menu",
-                    nav=True,
-                    in_navbar=True,
-                    style={
-                        "position": "fixed",
-                        "top": "20px",
-                        "right": "20px",
-                        "zIndex": "1000",
-                    },
-                ),
-            ),
-            
-            html.Div(id='dummy-div', style={'display': 'none'}),
-            
-            # Filtro de Eventos e Botão PDF
-            html.Div([
-                html.H4("Filtrar por Evento:", id="topo", style={"marginLeft": "20px", "marginBottom": "10px"}),
-                dbc.Row([
-                    dbc.Col(
-                        dcc.Dropdown(
-                            id='filtro-evento',
-                            options=[{
-                                'label': html.Span([
-                                    evento,
-                                    html.Span(
-                                        f" ({get_classificacao(evento)})",
-                                        style={
-                                            'fontSize': '12px',
-                                            'color': '#666',
-                                            'marginLeft': '5px',
-                                            'fontStyle': 'italic'
-                                        }
-                                    )
-                                ]),
-                                'value': evento
-                            } for evento in sorted(eventos_unicos)],
-                            value=None,
-                            placeholder="Selecione um evento...",
-                            style={"width": "300px", "marginLeft": "20px", "marginBottom": "20px"}
-                        ),
-                        width=6
-                    ),
-                    dbc.Col(
-                        dbc.Button("Baixar Relatório em PDF", 
-                                id="btn-gerar-pdf",
-                                color="primary",
-                                style={"float": "right", "marginRight": "20px", "marginBottom": "10px", "marginTop": "30px"}),
-                        width=6
-                    )
-                ])
-            ]),
-            
-            # Componente para download do PDF
-            dcc.Download(id="download-pdf"),
-            
-            dbc.Tabs(
-                id="abas-estacoes",
-                active_tab=estacoes_unicas[0] if len(estacoes_unicas) > 0 else None,
-                children=[dbc.Tab(label=estacao, tab_id=estacao) for estacao in estacoes_unicas]
-            ),
-            html.Div(id="conteudo-aba", style={"padding": "20px"})
+            html.Div(id='page-content')
         ], width=10, style={"marginLeft": "16.666%"})  # ADICIONA MARGEM PARA COMPENSAR O MENU FIXO
     ])
 ])
@@ -456,6 +472,12 @@ def mostrar_conteudo_estacao(estacao_selecionada, evento_selecionado):
                                 freq_filtradas["V"].max()) * 1.1
                 
                 def criar_grafico_freq(direcao):
+                    # Encontra os 5 maiores picos para a direção atual
+                    picos = encontrar_picos(
+                        freq_filtradas["Freq."].values,
+                        freq_filtradas[direcao].values
+                    )
+                    
                     figura = go.Figure()
                     figura.add_trace(go.Scatter(
                         x=freq_filtradas["Freq."],
@@ -464,10 +486,23 @@ def mostrar_conteudo_estacao(estacao_selecionada, evento_selecionado):
                         line=dict(color='black', width=1),
                         name=direcao
                     ))
+                    
+                    # Adiciona marcadores para os picos
+                    for i, (freq, ampl) in enumerate(picos, 1):
+                        figura.add_trace(go.Scatter(
+                            x=[freq],
+                            y=[ampl],
+                            mode='markers+text',
+                            marker=dict(size=10, color='red'),
+                            text=f"{i}",
+                            textposition="top center",
+                            showlegend=False
+                        ))
+                    
                     figura.update_layout(
-                        title=f"Espectro de Frequência - Direção {direcao} (Evento: {evento_atual})",
+                        title=f"Espectro de Frequência - FFT Direção  {direcao} (Evento: {evento_atual})",
                         xaxis_title="Frequência (Hz)",
-                        yaxis_title="Amplitude",
+                        yaxis_title="Aceleração (mg)",
                         margin=dict(l=40, r=40, t=40, b=40),
                         height=300,
                         plot_bgcolor='white',
@@ -475,7 +510,40 @@ def mostrar_conteudo_estacao(estacao_selecionada, evento_selecionado):
                     )
                     return dcc.Graph(figure=figura, style={'margin-bottom': '20px'})
                 
+                # Cria a tabela de máximos de frequência
+                tabela_maximos = []
+                for direcao in ['T', 'R', 'V']:
+                    picos = encontrar_picos(
+                        freq_filtradas["Freq."].values,
+                        freq_filtradas[direcao].values
+                    )
+                    # Extrai apenas as frequências (ignora as amplitudes)
+                    frequencias = [f"{freq:.3f}".replace(".", ",") for freq, _ in picos]
+                    tabela_maximos.append({
+                        'Direção': direcao,
+                        '1': frequencias[0] if len(frequencias) > 0 else '-',
+                        '2': frequencias[1] if len(frequencias) > 1 else '-',
+                        '3': frequencias[2] if len(frequencias) > 2 else '-',
+                        '4': frequencias[3] if len(frequencias) > 3 else '-',
+                        '5': frequencias[4] if len(frequencias) > 4 else '-'
+                    })
+                
+                df_tabela_maximos = pd.DataFrame(tabela_maximos)
+                
                 graficos_freq = html.Div([
+                    html.H5("Máximos de Frequência da Estação", style={"textAlign": "center", "marginTop": "20px"}),
+                    dbc.Table.from_dataframe(
+                        df_tabela_maximos,
+                        striped=True,
+                        bordered=True,
+                        hover=True,
+                        style={
+                            'width': '80%',
+                            'margin-left': 'auto',
+                            'margin-right': 'auto',
+                            'margin-bottom': '30px'
+                        }
+                    ),
                     criar_grafico_freq("T"),
                     criar_grafico_freq("R"),
                     criar_grafico_freq("V")
@@ -549,6 +617,18 @@ def mostrar_conteudo_estacao(estacao_selecionada, evento_selecionado):
         
         graficos_freq
     ])
+
+# ------------- Navegar entre as paginas do menu lateral. -----------------------
+
+@app.callback(
+    Output('page-content', 'children'),
+    Input('url', 'pathname')
+)
+def render_page_content(pathname):
+    if pathname == "/mapa-barragem":
+        return layout_mapa_barragem
+    else:
+        return layout_relatorios
 
 if __name__ == '__main__':
     app.run(debug=True)
