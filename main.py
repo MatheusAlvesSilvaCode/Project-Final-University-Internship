@@ -14,6 +14,7 @@ from dash.dcc import Download
 from dash.exceptions import PreventUpdate
 from functools import lru_cache
 from mapa_barragem import layout as layout_mapa_barragem
+from mapa_barragem import layout as layout_mapa_barragem, register_callbacks
 
 # Inicializa o aplicativo Dash
 app = Dash(__name__, external_stylesheets=[dbc.themes.FLATLY], suppress_callback_exceptions=True)
@@ -629,6 +630,9 @@ def render_page_content(pathname):
         return layout_mapa_barragem
     else:
         return layout_relatorios
+    
+# Para a Pagina de Mapa_barragem.py
+register_callbacks(app)
 
 if __name__ == '__main__':
     app.run(debug=True)
