@@ -1,5 +1,9 @@
-from dash import html, dcc, Input, Output, callback, callback_context
+from dash import html, dcc, Input, Output, callback, callback_context, no_update
 import base64
+from datetime import datetime, timedelta
+import dash_bootstrap_components as dbc
+from dash.exceptions import PreventUpdate
+from dash import html, dcc, Input, Output, callback, callback_context, no_update, State
 
 # Carrega a imagem SVG como base64
 with open("assets/SOS-Daivoes.svg", "rb") as image_file:
@@ -7,12 +11,12 @@ with open("assets/SOS-Daivoes.svg", "rb") as image_file:
 
 # Coordenadas em porcentagem da largura/altura da imagem
 station_coords = {
-    "S-01-1": {"x": 51.68, "y": 45.98, "radius": 5.71},  # Já existente e funcional
-    "S-07-1": {"x": 69.03, "y": 39.78, "radius": 5.71},
-    "S-09-1": {"x": 75.68, "y": 57.39, "radius": 5.71},
-    "S-01-02": {"x": 51.68, "y": 73.81, "radius": 5.71},
-    "S-10-01": {"x": 22.52, "y": 57.78, "radius": 5.71},
-    "S-06-1": {"x": 33.05, "y": 39.79, "radius": 5.71}
+    "S-01-1": {"x": 51.68, "y": 45.98, "radius": 7},
+    "S-07-1": {"x": 69.5, "y": 40.2, "radius": 7},
+    "S-09-1": {"x": 76.0, "y": 57.8, "radius": 7},
+    "S-01-02": {"x": 51.7, "y": 74.0, "radius": 7},
+    "S-10-01": {"x": 22.8, "y": 58.0, "radius": 7},
+    "S-06-1": {"x": 33.3, "y": 40.1, "radius": 7}
 }
 
 layout = html.Div([
@@ -25,7 +29,7 @@ layout = html.Div([
             "position": "relative",
             "width": "100%",
             "height": "0",
-            "paddingBottom": "60%",  # Proporção da imagem (ajuste conforme necessário)
+            "paddingBottom": "60%",
             "overflow": "hidden"
         },
         children=[
@@ -38,7 +42,6 @@ layout = html.Div([
                     "objectFit": "contain"
                 }
             ),
-            # Áreas clicáveis com posicionamento relativo
             *[
                 html.Div(
                     id=f"station-{station_id}",
@@ -48,7 +51,7 @@ layout = html.Div([
                         "top": f"{coords['y']}%",
                         "width": f"{coords['radius']}%",
                         "height": f"{coords['radius']}%",
-                        "transform": "translate(-50%, -50%)",  # Centraliza no ponto
+                        "transform": "translate(-50%, -50%)",
                         "borderRadius": "50%",
                         "cursor": "pointer",
                         "zIndex": "1000",
@@ -60,7 +63,11 @@ layout = html.Div([
         ]
     ),
     
-    html.Div(id='station-info', style={"margin": "30px", "text-align": "center"})
+    # Filtro de calendário
+    
+    
+    html.Div(id='station-info', style={"margin": "30px", "text-align": "center"}),
+    html.Div(id='filtered-data-output', style={"margin": "20px"})
 ])
 
 def register_callbacks(app):
@@ -92,4 +99,43 @@ def register_callbacks(app):
             html.H3(f"{data['name']}"),
             html.P(data['description']),
             html.P("Você pode adicionar gráficos, tabelas ou outras informações aqui.")
+        ])
+
+    @app.callback(
+        [Output('date-picker-range', 'start_date'),
+         Output('date-picker-range', 'end_date')],
+        Input('quick-date-filter', 'value')
+    )
+    def update_date_range(quick_filter):
+        today = datetime.now()
+        
+        if quick_filter == 'today':
+            return today.strftime('%Y-%m-%d'), today.strftime('%Y-%m-%d')
+        elif quick_filter == 'week':
+            start = today - timedelta(days=today.weekday())
+            return start.strftime('%Y-%m-%d'), today.strftime('%Y-%m-%d')
+        elif quick_filter == 'month':
+            start = today.replace(day=1)
+            return start.strftime('%Y-%m-%d'), today.strftime('%Y-%m-%d')
+        elif quick_filter == 'year':
+            start = today.replace(month=1, day=1)
+            return start.strftime('%Y-%m-%d'), today.strftime('%Y-%m-%d')
+        else:
+            return no_update, no_update
+
+    @app.callback(
+        Output('filtered-data-output', 'children'),
+        Input('apply-date-filter', 'n_clicks'),
+        [State('date-picker-range', 'start_date'),
+         State('date-picker-range', 'end_date')],
+        prevent_initial_call=True
+    )
+    def apply_date_filter(n_clicks, start_date, end_date):
+        if n_clicks is None:
+            raise PreventUpdate
+        
+        return html.Div([
+            html.H4("Filtro Aplicado:"),
+            html.P(f"Período selecionado: {start_date} até {end_date}"),
+            html.P("Implemente aqui a lógica de filtragem dos seus dados.")
         ])

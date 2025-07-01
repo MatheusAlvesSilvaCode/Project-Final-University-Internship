@@ -15,6 +15,7 @@ from dash.exceptions import PreventUpdate
 from functools import lru_cache
 from mapa_barragem import layout as layout_mapa_barragem
 from mapa_barragem import layout as layout_mapa_barragem, register_callbacks
+from home import layout as layout_home, register_callbacks as register_home_callbacks 
 
 # Inicializa o aplicativo Dash
 app = Dash(__name__, external_stylesheets=[dbc.themes.FLATLY], suppress_callback_exceptions=True)
@@ -70,8 +71,6 @@ def classificar_evento(evento, df):
     
     # Conta quantas estações tiveram fator de pico > 10
     estacoes_com_trigger = dados_evento[dados_evento["valor"] > 10]["estacao"].nunique()
-    print('Mostrando como está os dados de evento AQUI:::::')
-    print(dados_evento.head())
     
     # Total de estações que registraram o evento
     total_estacoes = dados_evento["estacao"].nunique()
@@ -132,47 +131,13 @@ layout_relatorios = html.Div([
     
     html.Div(id='dummy-div', style={'display': 'none'}),
     
-    # Filtro de Eventos e Botão PDF
-    html.Div([
-        html.H4("Filtrar por Evento:", id="topo", style={"marginLeft": "20px", "marginBottom": "10px"}),
-        dbc.Row([
-            dbc.Col(
-                dcc.Dropdown(
-                    id='filtro-evento',
-                    options=[{
-                        'label': html.Span([
-                            evento,
-                            html.Span(
-                                f" ({get_classificacao(evento)})",
-                                style={
-                                    'fontSize': '12px',
-                                    'color': '#666',
-                                    'marginLeft': '5px',
-                                    'fontStyle': 'italic'
-                                }
-                            )
-                        ]),
-                        'value': evento
-                    } for evento in sorted(eventos_unicos)],
-                    value=None,
-                    placeholder="Selecione um evento...",
-                    style={"width": "300px", "marginLeft": "20px", "marginBottom": "20px"}
-                ),
-                width=6
-            ),
-            dbc.Col(
-                dbc.Button("Baixar Relatório em PDF", 
-                        id="btn-gerar-pdf",
-                        color="primary",
-                        style={"float": "right", "marginRight": "20px", "marginBottom": "20px", "marginTop": "30px"}),
-                width=6
-            )
-        ])
-    ]),
-    
     # Componente para download do PDF
     dcc.Download(id="download-pdf"),
     
+    #Aqui vai o texto
+    html.H3('RELATÓRIO SOS DA BARRAGEM DE DAIVÕES', style={"textAlign": "center", "marginTop": "30px"}),
+    #html.H3('SOS DA BARRAGEM DE DAIVÕES', style={"textAlign": "center"}),
+
     dbc.Tabs(
         id="abas-estacoes",
         active_tab=estacoes_unicas[0] if len(estacoes_unicas) > 0 else None,
@@ -196,8 +161,10 @@ app.layout = html.Div([
                 html.Div([
                     html.H6("OPÇÕES PRINCIPAIS", style={"color": "#555", "padding": "5px 10px", "marginTop": "15px"}),
                     dbc.Nav([
+                        dbc.NavLink("Home", href="/home", active="exact", style={"padding": "8px 15px"}),
                         dbc.NavLink("Relatórios", href="/", active="exact", style={"padding": "8px 15px"}),
                         dbc.NavLink("Mapa Barragem", href="/mapa-barragem", active="exact", style={"padding": "8px 15px"}),
+                        
                     ], vertical=True, pills=True),
                 ]),
                 
@@ -267,18 +234,14 @@ def scroll_to_section(botao_topo_clicks, botao_series_clicks, botao_espectros_cl
     Input("btn-gerar-pdf", "n_clicks"),
     State("conteudo-aba", "children"),
     State("abas-estacoes", "active_tab"),
-    State("filtro-evento", "value"),
     prevent_initial_call=True
 )
-def gerar_pdf(n_clicks, conteudo_aba, estacao_selecionada, evento_selecionado):
+def gerar_pdf(n_clicks, conteudo_aba, estacao_selecionada):
     if n_clicks is None:
         raise PreventUpdate
     
-    # Cria um nome de arquivo baseado na estação e evento
-    nome_arquivo = f"relatorio_{estacao_selecionada}"
-    if evento_selecionado:
-        nome_arquivo += f"_{evento_selecionado}"
-    nome_arquivo += ".pdf"
+    # Cria um nome de arquivo baseado na estação
+    nome_arquivo = f"relatorio_{estacao_selecionada}.pdf"
     
     # Cria um HTML temporário com o conteúdo do relatório
     html_content = f"""
@@ -303,7 +266,6 @@ def gerar_pdf(n_clicks, conteudo_aba, estacao_selecionada, evento_selecionado):
             <h2>MONITORAMENTO DA BARRAGEM</h2>
             <h2>RELATÓRIO SÍSMICO</h2>
             <h3>Estação: {estacao_selecionada}</h3>
-            <p>Evento selecionado: {evento_selecionado if evento_selecionado else 'Todos'}</p>
             <p>Gerado em: {datetime.now().strftime('%d/%m/%Y %H:%M:%S')}</p>
         </div>
     """
@@ -338,25 +300,20 @@ def gerar_pdf(n_clicks, conteudo_aba, estacao_selecionada, evento_selecionado):
             print(f"Erro ao gerar PDF: {e}")
             return no_update
 
-# Callback principal (com a correção para mostrar as estações que dispararam o evento)
+# Callback principal
 @app.callback(
     Output("conteudo-aba", "children"),
-    [Input("abas-estacoes", "active_tab"),
-     Input("filtro-evento", "value")]
+    [Input("abas-estacoes", "active_tab")]
 )
-def mostrar_conteudo_estacao(estacao_selecionada, evento_selecionado):
+def mostrar_conteudo_estacao(estacao_selecionada):
     if estacao_selecionada is None:
         return html.P("Nenhuma estação selecionada.")
 
     # Filtra os dados da estação selecionada
     dados_estacao = df_eventos[df_eventos["estacao"] == estacao_selecionada].copy()
     
-    # Aplica filtro de evento se selecionado
-    if evento_selecionado:
-        dados_estacao = dados_estacao[dados_estacao["evento"] == evento_selecionado]
-    
     if dados_estacao.empty:
-        return html.P("Sem dados para esta combinação de estação e evento.")
+        return html.P("Sem dados para esta estação.")
 
     trigger = dados_estacao["trigger"].iloc[0]
     evento_atual = dados_estacao["evento"].iloc[0]
@@ -556,22 +513,22 @@ def mostrar_conteudo_estacao(estacao_selecionada, evento_selecionado):
 
     # Layout da página
     return html.Div([
-        html.H3('RELATÓRIO DE EVENTO SÍSMICO', style={"textAlign": "center", "marginTop": "30px"}),
-        html.H3('SOS DA BARRAGEM DE DAIVÕES', style={"textAlign": "center"}),
-        html.H4(f"Estação: {estacao_selecionada}", style={"textAlign": "center"}),
-        html.P(f"Trigger: {trigger}", style={"textAlign": "center"}),
-        html.P(f"Evento selecionado: {evento_atual}", style={"textAlign": "center", "fontWeight": "bold"}),
+        
+        
+        #html.H4(f"Estação: {estacao_selecionada}", style={"textAlign": "center"}),
+        #html.P(f"Trigger: {trigger}", style={"textAlign": "center"}),
+        #html.P(f"Evento selecionado: {evento_atual}", style={"textAlign": "center", "fontWeight": "bold"}),
 
         html.Div([
-            html.H5('Resumo', style={"fontWeight": "bold", "marginTop": "20px"}),
-            html.Div([
-                html.P(f"Data/Hora do Evento: {trigger.split('T')[0]}, {trigger.split('T')[1][:8]}"),
-                html.P(f"Processado em: {datetime.now().strftime('%d/%m/%Y %H:%M:%S')}"),
-                html.P(f"Estações que registraram o evento: {', '.join(estacoes_ativas)}"),
-                html.P(f"Estações com fator de pico > 10: {', '.join(estacoes_com_evento) if len(estacoes_com_evento) > 0 else 'Nenhuma'}"),
-                html.P(f"Classificação: {classificacao}"),
-                html.P(f"Rácio: {racio:.2f}".replace(".", ",")),
-            ], style={"marginLeft": "15px"}),
+            #html.H5('Resumo', style={"fontWeight": "bold", "marginTop": "20px"}),
+            # html.Div([ # Resumo do relatório
+            #     html.P(f"Data/Hora do Evento: {trigger.split('T')[0]}, {trigger.split('T')[1][:8]}"),
+            #     html.P(f"Processado em: {datetime.now().strftime('%d/%m/%Y %H:%M:%S')}"),
+            #     html.P(f"Estações que registraram o evento: {', '.join(estacoes_ativas)}"),
+            #     html.P(f"Estações com fator de pico > 10: {', '.join(estacoes_com_evento) if len(estacoes_com_evento) > 0 else 'Nenhuma'}"),
+            #     html.P(f"Classificação: {classificacao}"),
+            #     html.P(f"Rácio: {racio:.2f}".replace(".", ",")),
+            # ], style={"marginLeft": "15px"}),
             
             html.H5("Aceleração Máxima:", style={"fontWeight": "bold", "marginTop": "15px"}),
             dbc.Table([
@@ -628,6 +585,8 @@ def mostrar_conteudo_estacao(estacao_selecionada, evento_selecionado):
 def render_page_content(pathname):
     if pathname == "/mapa-barragem":
         return layout_mapa_barragem
+    elif pathname == "/home":
+        return layout_home
     else:
         return layout_relatorios
     
