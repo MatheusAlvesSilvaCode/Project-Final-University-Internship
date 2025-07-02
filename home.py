@@ -4,28 +4,28 @@ from datetime import datetime, timedelta
 from dash.exceptions import PreventUpdate
 import pandas as pd
 import os
+import json
+from functools import lru_cache
 
-# Layout principal da página Home
+# Layout principal (mantido exatamente igual)
 layout = html.Div([
-    # Filtro por Tipo de Evento
     dbc.Card([
         dbc.CardHeader("Filtrar por Tipo de Evento", style={"fontWeight": "bold"}),
         dbc.CardBody([
             dbc.Checklist(
-                id='event-type-filter',
+                id='filtro-tipo-evento',
                 options=[
-                    {'label': 'Todos', 'value': 'all'},
+                    {'label': 'Todos', 'value': 'todos'},
                     {'label': 'Eventos Globais', 'value': 'global'},
                     {'label': 'Eventos Locais', 'value': 'local'},
-                    {'label': 'Ruídos', 'value': 'noise'}
+                    {'label': 'Ruídos', 'value': 'ruido'}
                 ],
-                value=['all'],
+                value=['todos'],
                 inline=True
             )
         ])
     ], className='mt-4 mb-4'),
     
-    # Filtro por Período
     dbc.Card([
         dbc.CardHeader("Filtrar por Período", style={"fontWeight": "bold"}),
         dbc.CardBody([
@@ -33,7 +33,7 @@ layout = html.Div([
                 dbc.Col([
                     dbc.Label("Selecione o período:"),
                     dcc.DatePickerRange(
-                        id='date-picker-range',
+                        id='seletor-data',
                         min_date_allowed=datetime(2020, 1, 1),
                         max_date_allowed=datetime(2025, 12, 31),
                         initial_visible_month=datetime.now(),
@@ -53,15 +53,15 @@ layout = html.Div([
                 dbc.Col([
                     dbc.Label("Filtro Rápido:"),
                     dbc.RadioItems(
-                        id='quick-date-filter',
+                        id='filtro-rapido-data',
                         options=[
-                            {'label': 'Hoje', 'value': 'today'},
-                            {'label': 'Esta Semana', 'value': 'week'},
-                            {'label': 'Este Mês', 'value': 'month'},
-                            {'label': 'Este Ano', 'value': 'year'},
-                            {'label': 'Personalizado', 'value': 'custom'}
+                            {'label': 'Hoje', 'value': 'hoje'},
+                            {'label': 'Esta Semana', 'value': 'semana'},
+                            {'label': 'Este Mês', 'value': 'mes'},
+                            {'label': 'Este Ano', 'value': 'ano'},
+                            {'label': 'Personalizado', 'value': 'personalizado'}
                         ],
-                        value='month',
+                        value='mes',
                         inline=True
                     )
                 ], md=6)
@@ -69,12 +69,11 @@ layout = html.Div([
         ])
     ], className='mb-4'),
     
-    # Prévia dos Eventos
     dbc.Card([
         dbc.CardHeader("Prévia dos Eventos", style={"fontWeight": "bold"}),
         dbc.CardBody([
-            html.Div(id='event-preview', style={
-                'maxHeight': '300px',
+            html.Div(id='previa-eventos', style={
+                'maxHeight': '400px',
                 'overflowY': 'auto',
                 'padding': '10px',
                 'border': '1px solid #eee',
@@ -83,171 +82,229 @@ layout = html.Div([
         ])
     ], className='mb-4'),
     
-    # Botão para aplicar filtros e redirecionar
     dbc.Button(
         "Buscar Eventos",
-        id='apply-filters-button',
+        id='botao-buscar-eventos',
         color='primary',
         className='mb-4',
         n_clicks=0
     ),
     
-    # Componente para redirecionamento
-    dcc.Location(id='redirect-to-reports', refresh=True),
-    
-    # Armazenar os filtros selecionados
-    dcc.Store(id='filters-store'),
-    
-    # Armazenar dados dos eventos para prévia
-    dcc.Store(id='events-data')
+    dcc.Location(id='redirecionar-relatorios', refresh=True),
+    dcc.Store(id='armazenar-filtros'),
+    dcc.Store(id='armazenar-dados-eventos')
 ])
 
-# Callbacks para a página Home
-def register_callbacks(app):
+def registrar_callbacks(app):
     @app.callback(
-        Output('redirect-to-reports', 'pathname'),
-        Output('filters-store', 'data'),
-        Input('apply-filters-button', 'n_clicks'),
-        State('event-type-filter', 'value'),
-        State('date-picker-range', 'start_date'),
-        State('date-picker-range', 'end_date'),
+        Output('redirecionar-relatorios', 'pathname'),
+        Output('armazenar-filtros', 'data'),
+        Input('botao-buscar-eventos', 'n_clicks'),
+        State('filtro-tipo-evento', 'value'),
+        State('seletor-data', 'start_date'),
+        State('seletor-data', 'end_date'),
         prevent_initial_call=True
     )
-    def apply_filters_and_redirect(n_clicks, event_types, start_date, end_date):
+    def aplicar_filtros_redirecionar(n_clicks, tipos_evento, data_inicio, data_fim):
         if n_clicks is None or n_clicks == 0:
             raise PreventUpdate
         
-        # Armazena os filtros selecionados
-        filters = {
-            'event_types': event_types,
-            'start_date': start_date,
-            'end_date': end_date
+        return '/reports', {
+            'tipos_evento': tipos_evento,
+            'data_inicio': data_inicio,
+            'data_fim': data_fim
         }
-        
-        # Redireciona para a página de relatórios
-        return '/', filters
-    
+
     @app.callback(
-        Output('date-picker-range', 'start_date'),
-        Output('date-picker-range', 'end_date'),
-        Input('quick-date-filter', 'value')
+        Output('seletor-data', 'start_date'),
+        Output('seletor-data', 'end_date'),
+        Input('filtro-rapido-data', 'value')
     )
-    def update_date_range(quick_filter):
-        today = datetime.now()
+    def atualizar_periodo(filtro_rapido):
+        hoje = datetime.now()
         
-        if quick_filter == 'today':
-            return today.strftime('%Y-%m-%d'), today.strftime('%Y-%m-%d')
-        elif quick_filter == 'week':
-            start = today - timedelta(days=today.weekday())
-            return start.strftime('%Y-%m-%d'), today.strftime('%Y-%m-%d')
-        elif quick_filter == 'month':
-            start = today.replace(day=1)
-            return start.strftime('%Y-%m-%d'), today.strftime('%Y-%m-%d')
-        elif quick_filter == 'year':
-            start = today.replace(month=1, day=1)
-            return start.strftime('%Y-%m-%d'), today.strftime('%Y-%m-%d')
-        else:
-            return no_update, no_update
-    
+        if filtro_rapido == 'hoje':
+            return hoje.strftime('%Y-%m-%d'), hoje.strftime('%Y-%m-%d')
+        elif filtro_rapido == 'semana':
+            inicio_semana = hoje - timedelta(days=hoje.weekday())
+            return inicio_semana.strftime('%Y-%m-%d'), hoje.strftime('%Y-%m-%d')
+        elif filtro_rapido == 'mes':
+            inicio_mes = hoje.replace(day=1)
+            return inicio_mes.strftime('%Y-%m-%d'), hoje.strftime('%Y-%m-%d')
+        elif filtro_rapido == 'ano':
+            inicio_ano = hoje.replace(month=1, day=1)
+            return inicio_ano.strftime('%Y-%m-%d'), hoje.strftime('%Y-%m-%d')
+        return None, None
+
     @app.callback(
-        Output('event-preview', 'children'),
-        Output('events-data', 'data'),
-        Input('event-type-filter', 'value'),
-        Input('date-picker-range', 'start_date'),
-        Input('date-picker-range', 'end_date'),
-        State('events-data', 'data')  # Manter o estado dos dados existentes
+        Output('previa-eventos', 'children'),
+        Output('armazenar-dados-eventos', 'data'),
+        Input('filtro-tipo-evento', 'value'),
+        Input('seletor-data', 'start_date'),
+        Input('seletor-data', 'end_date'),
+        prevent_initial_call=True
     )
-    def update_event_preview(event_types, start_date, end_date, existing_data):
-        # Carrega os dados reais dos eventos
+    def atualizar_previa_eventos(tipos_evento, data_inicio, data_fim):
         try:
-            caminho_base = r'C:\Users\mathe\Desktop\Estágio\Final'
-            caminho_eventos = os.path.join(caminho_base, "events", "2025", "2025")
-            from consolidate_events import carregar_eventos
-            df_eventos = carregar_eventos(caminho_eventos)
+            base_path = r'C:\Users\mathe\Desktop\Estágio\Final\events\2025'
+            eventos = []
             
-            # Converte trigger para datetime
-            df_eventos['data_hora'] = pd.to_datetime(df_eventos['trigger'])
+            # Percorre todos os subdiretórios para encontrar os JSONs
+            for root, _, files in os.walk(base_path):
+                for file in files:
+                    if file.endswith('.json'):
+                        try:
+                            with open(os.path.join(root, file), 'r') as f:
+                                data = json.load(f)
+                                event_id = file.replace('.json', '')
+                                
+                                # Processa cada estação no arquivo JSON
+                                for station, info in data.get('eventFiles', {}).items():
+                                    try:
+                                        trigger_time = pd.to_datetime(info.get('triggerStart'))
+                                        peak_value = max([ch.get('value', 0) for ch in info.get('df', {}).get('cf', [])])
+                                        
+                                        eventos.append({
+                                            'evento': event_id,
+                                            'estacao': station,
+                                            'data_hora': trigger_time,
+                                            'valor': peak_value,
+                                            'trigger': info.get('triggerStart', '')
+                                        })
+                                    except Exception as e:
+                                        print(f"Erro ao processar estação {station} no arquivo {file}: {str(e)}")
+                        except Exception as e:
+                            print(f"Erro ao ler arquivo {file}: {str(e)}")
             
-            # Filtra por data
-            start_date = pd.to_datetime(start_date)
-            end_date = pd.to_datetime(end_date) + timedelta(days=1)  # Para incluir todo o dia final
-            df_filtrado = df_eventos[(df_eventos['data_hora'] >= start_date) & 
-                                   (df_eventos['data_hora'] <= end_date)].copy()
+            if not eventos:
+                return [html.Div("Nenhum evento encontrado nos arquivos JSON")], None
             
-            # Classifica os eventos
-            def get_classification(evento):
-                classificacao, _ = classificar_evento(evento, df_eventos)
-                return classificacao
-                
-            df_filtrado['classificacao'] = df_filtrado['evento'].apply(get_classification)
+            df_eventos = pd.DataFrame(eventos)
             
-            # Filtra por tipo de evento
-            if 'all' not in event_types:
-                type_mapping = {
+            # Processamento das datas
+            data_inicio = pd.to_datetime(data_inicio)
+            data_fim = pd.to_datetime(data_fim) + timedelta(days=1)
+            
+            df_filtrado = df_eventos[
+                (df_eventos['data_hora'] >= data_inicio) & 
+                (df_eventos['data_hora'] <= data_fim)
+            ].copy()
+            
+            # Pré-processamento para classificação
+            df_classificacao = df_filtrado.groupby('evento').agg({
+                'estacao': 'nunique',
+                'valor': lambda x: (x > 10).sum()
+            }).reset_index()
+            
+            # Aplicar classificação
+            df_classificacao['classificacao'] = df_classificacao.apply(
+                lambda x: classificar_evento(x['valor'], x['estacao']), axis=1)
+            
+            # Juntar a classificação ao DataFrame principal
+            df_filtrado = df_filtrado.merge(
+                df_classificacao[['evento', 'classificacao']],
+                on='evento',
+                how='left'
+            )
+            
+            # Filtro por tipo de evento
+            if 'todos' not in tipos_evento:
+                mapeamento_tipos = {
                     'global': 'Evento Global',
                     'local': 'Evento Local',
-                    'noise': 'Ruído'
+                    'ruido': 'Ruído'
                 }
-                selected_types = [type_mapping[t] for t in event_types]
-                df_filtrado = df_filtrado[df_filtrado['classificacao'].isin(selected_types)]
+                tipos_selecionados = [mapeamento_tipos[t] for t in tipos_evento if t in mapeamento_tipos]
+                df_filtrado = df_filtrado[df_filtrado['classificacao'].isin(tipos_selecionados)]
             
-            # Prepara os dados para exibição
-            eventos_para_exibicao = []
-            for _, row in df_filtrado.iterrows():
-                eventos_para_exibicao.append({
-                    'date': row['data_hora'].strftime('%d/%m/%Y %H:%M'),
-                    'type': row['classificacao'].lower().replace(' ', '_'),
-                    'classification': row['classificacao'],
-                    'estacao': row['estacao'],
-                    'evento': row['evento']
-                })
+            # Agrupamento e ordenação
+            eventos_agrupados = df_filtrado.groupby('evento').agg({
+                'data_hora': 'first',
+                'classificacao': 'first',
+                'estacao': lambda x: ', '.join(sorted(set(x))),
+                'valor': 'max',
+                'trigger': 'first'
+            }).reset_index().sort_values('data_hora', ascending=False)
             
-            # Cria os itens de pré-visualização
-            preview_items = [
-                html.Div(
-                    f"{event['date']} - {event['classification']} (Estação: {event['estacao']}, Evento: {event['evento']})",
+            # Criação dos cards de pré-visualização
+            itens_previa = []
+            for _, linha in eventos_agrupados.iterrows():
+                cor = {
+                    'Evento Global': '#dc3545',
+                    'Evento Local': '#fd7e14',
+                    'Ruído': '#6c757d'
+                }.get(linha['classificacao'], '#6c757d')
+                
+                item = dbc.Card(
+                    [
+                        dbc.CardHeader(
+                            html.Div([
+                                html.Span(
+                                    linha['data_hora'].strftime('%d/%m/%Y %H:%M:%S'),
+                                    style={"fontWeight": "bold", "marginRight": "10px"}
+                                ),
+                                dbc.Badge(
+                                    linha['classificacao'],
+                                    color={
+                                        'Evento Global': 'danger',
+                                        'Evento Local': 'warning',
+                                        'Ruído': 'secondary'
+                                    }.get(linha['classificacao'], 'secondary'),
+                                    className="me-1"
+                                )
+                            ], style={"display": "flex", "alignItems": "center"})
+                        ),
+                        dbc.CardBody([
+                            html.P([
+                                html.Strong("Evento: "),
+                                linha['evento']
+                            ]),
+                            html.P([
+                                html.Strong("Estações: "),
+                                linha['estacao']
+                            ]),
+                            html.P([
+                                html.Strong("Pico: "),
+                                f"{linha['valor']:.2f}",
+                                html.Span(" m/s²", style={"color": "#6c757d"})
+                            ]),
+                            html.P([
+                                html.Small(linha['trigger'], style={"color": "#6c757d"})
+                            ])
+                        ])
+                    ],
                     style={
-                        'padding': '8px',
-                        'marginBottom': '5px',
-                        'borderBottom': '1px solid #eee',
-                        'fontSize': '14px'
+                        'marginBottom': '10px',
+                        'borderLeft': f'4px solid {cor}'
                     }
                 )
-                for event in eventos_para_exibicao
-            ]
+                itens_previa.append(item)
             
-            if not preview_items:
-                preview_items = [html.Div("Nenhum evento encontrado com os filtros selecionados")]
+            if not itens_previa:
+                return [html.Div("Nenhum evento encontrado com os critérios selecionados")], None
             
-            return preview_items, eventos_para_exibicao
+            return itens_previa, eventos_agrupados.to_dict('records')
             
-        except Exception as e:
-            print(f"Erro ao carregar eventos: {e}")
+        except Exception as erro:
+            print(f"Erro ao processar eventos: {str(erro)}")
             return [html.Div("Erro ao carregar dados dos eventos")], None
 
-# Função auxiliar para classificar eventos (copiada do main.py)
-def classificar_evento(evento, df):
-    # Filtra os dados apenas para o evento em questão
-    dados_evento = df[df["evento"] == evento]
-    
-    # Conta quantas estações tiveram fator de pico > 10
-    estacoes_com_trigger = dados_evento[dados_evento["valor"] > 10]["estacao"].nunique()
-    
-    # Total de estações que registraram o evento
-    total_estacoes = dados_evento["estacao"].nunique()
-    
-    if total_estacoes == 0:
-        return "Sem dados", 0
-    
-    # Calcula o rácio
-    racio = estacoes_com_trigger / total_estacoes
-    
-    # Classifica conforme os limiares
-    if racio < 0.10:
-        classificacao = "Ruído"
-    elif racio <= 0.75:
-        classificacao = "Evento Local"
-    else:
-        classificacao = "Evento Global"
-    
-    return classificacao, racio
+@lru_cache(maxsize=None)
+def classificar_evento(estacoes_acionadas, total_estacoes):
+    try:
+        if total_estacoes == 0:
+            return "Sem dados"
+        
+        proporcao = estacoes_acionadas / total_estacoes
+        
+        if proporcao < 0.10:
+            classificacao = "Ruído"
+        elif proporcao <= 0.75:
+            classificacao = "Evento Local"
+        else:
+            classificacao = "Evento Global"
+        
+        return classificacao
+    except Exception as erro:
+        print(f"Erro na classificação: {str(erro)}")
+        return "Não classificado"
