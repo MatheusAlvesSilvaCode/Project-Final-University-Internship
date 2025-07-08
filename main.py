@@ -122,6 +122,7 @@ layout_relatorios = html.Div([
     html.Div(id='dummy-div', style={'display': 'none'}),
     dcc.Download(id="download-pdf"),
     html.H3('RELATÓRIO DE MONITORAMENTO DA BARRAGEM DAVÕES', style={"textAlign": "center", "marginTop": "30px"}),
+    html.Div(id="titulo-evento-dinamico", style={"textAlign": "center", "color": "black", "marginTop": "10px", "marginBottom": "10px"}),
     dbc.Row([
         dbc.Col([
             dbc.Button(
@@ -149,11 +150,13 @@ layout_relatorios = html.Div([
             ),
         ], width=12),
     ]),
-    # Abas fixas para todas as estações
+    # Abas fixas para todas as estações + Resumo
     dbc.Tabs(
         id="abas-estacoes",
-        active_tab=unique_stations[0] if len(unique_stations) > 0 else None,
-        children=[dbc.Tab(label=estacao, tab_id=estacao) for estacao in unique_stations]
+        active_tab="resumo",
+        children=[
+            dbc.Tab(label="Resumo", tab_id="resumo")
+        ] + [dbc.Tab(label=estacao, tab_id=estacao) for estacao in unique_stations]
     ),
     html.Div(id="conteudo-aba", style={"padding": "20px"})
 ])
@@ -264,21 +267,115 @@ def toggle_dropdown_events(n_clicks, current_style, event_data):
     else:
         return {**current_style, 'display': 'none'}, no_update
 
+# Função para renderizar o conteúdo do resumo geral do evento
+
+def mostrar_resumo_evento(evento):
+    if not evento:
+        return html.P('Nenhum evento válido para exibir.')
+    evento_id = str(evento['evento']).strip()
+    # Filtra todos os dados do evento
+    dados_evento = df_events[df_events["evento"].astype(str).str.strip() == evento_id]
+    if dados_evento.empty:
+        return html.P("Sem dados para este evento.")
+    # Datas
+    data_hora_evento = evento.get('data_hora', None)
+    data_hora_proc = datetime.now().strftime('%Y-%m-%d, %H:%M:%S')
+    try:
+        data_hora_formatada = pd.to_datetime(data_hora_evento).strftime('%Y-%m-%d, %H:%M:%S')
+    except Exception:
+        data_hora_formatada = str(data_hora_evento)
+    # Estações acima do trigger
+    estacoes_trigger = ', '.join(sorted(map(str, set(dados_evento.loc[pd.Series(dados_evento['trigger']).notna(), 'estacao']))))
+    # Classificação e razão
+    classificacao, racio = classificar_evento(evento_id, df_events)
+    # Pico máximo
+    peaks_series = pd.Series(dados_evento['peak'])
+    idx_pico = peaks_series.idxmax() if not peaks_series.empty else None
+    pico_max = dados_evento.loc[idx_pico] if idx_pico is not None else {'estacao':'-','direcao':'-','peak':0,'valor':0}
+    # Tabelas de picos e fatores de pico
+    tabela_picos = dados_evento.pivot_table(index='estacao', columns='direcao', values='peak', aggfunc='max').reindex(columns=['T','R','V'])
+    tabela_fatores = dados_evento.pivot_table(index='estacao', columns='direcao', values='valor', aggfunc='max').reindex(columns=['T','R','V'])
+    # Monta layout
+    return html.Div([
+        #html.H2("Resumo", style={"marginBottom": "20px"}),
+        html.P([
+            html.B("Data e Hora de Processamento dos Registos: "), f"{data_hora_proc}"
+        ]),
+        html.P([
+            html.B("Estações acima do Trigger: "), f"{estacoes_trigger if estacoes_trigger else '-'}"
+        ]),
+        html.P([
+            html.B("Classificação do Evento: "), html.B(classificacao)
+        ]),
+        html.P([
+            html.B("Rácio de Estações com Fator de Pico Acima de 10 mg/mg: "), html.B(f"{racio:.2f}")
+        ]),
+        html.P(html.B("Aceleração Máxima Registada:")),
+        dbc.Table([
+            html.Tbody([
+                html.Tr([
+                    html.Td(f"Estação: {pico_max['estacao']}", style={"border": "1px solid #000"}),
+                    html.Td(f"Direção: {pico_max['direcao']}", style={"border": "1px solid #000"}),
+                    html.Td(f"Magnitude: {pico_max['peak']:.3f} mg", style={"border": "1px solid #000"}),
+                    html.Td(f"Fator de Pico: {pico_max['valor']:.3f} mg/mg", style={"border": "1px solid #000"})
+                ])
+            ])
+        ], bordered=True, style={"marginBottom": "20px"}),
+        dbc.Row([
+            dbc.Col([
+                html.H5("Picos de Aceleração [mg]", style={"textAlign": "center"}),
+                dbc.Table([
+                    html.Thead(html.Tr([
+                        html.Th("Estação")]+[html.Th(d) for d in ['T','R','V']]
+                    )),
+                    html.Tbody([
+                        html.Tr([
+                            html.Td(estacao)
+                        ] + [
+                            html.Td(f"{tabela_picos.loc[estacao, d]:.3f}" if pd.notna(tabela_picos.loc[estacao, d]) else '-')
+                            for d in ['T','R','V']
+                        ]) for estacao in tabela_picos.index
+                    ])
+                ], bordered=True, style={"marginBottom": "20px"})
+            ], width=6),
+            dbc.Col([
+                html.H5("Fatores de Pico [mg/mg]", style={"textAlign": "center"}),
+                dbc.Table([
+                    html.Thead(html.Tr([
+                        html.Th("Estação")]+[html.Th(d) for d in ['T','R','V']]
+                    )),
+                    html.Tbody([
+                        html.Tr([
+                            html.Td(estacao)
+                        ] + [
+                            html.Td(f"{tabela_fatores.loc[estacao, d]:.3f}" if pd.notna(tabela_fatores.loc[estacao, d]) else '-')
+                            for d in ['T','R','V']
+                        ]) for estacao in tabela_fatores.index
+                    ])
+                ], bordered=True, style={"marginBottom": "20px"})
+            ], width=6)
+        ])
+    ])
+
+# Certifique-se de que o callback do conteúdo das abas está com prevent_initial_call=False
 @app.callback(
     Output("conteudo-aba", "children"),
     Input("abas-estacoes", "active_tab"),
     Input('selected-event-store', 'data'),
     State('event-data-store', 'data'),
-    prevent_initial_call=True
+    prevent_initial_call=False  # Garante que o callback roda ao carregar a página
 )
 def mostrar_relatorio(aba_ativa, evento_selecionado, event_data):
     print("DEBUG mostrar_relatorio - evento_selecionado:", evento_selecionado)
     print("DEBUG mostrar_relatorio - event_data:", event_data)
     if not evento_selecionado:
-        raise PreventUpdate
+        # Mostra um loading spinner enquanto o evento não está disponível
+        return dbc.Spinner(size="lg", color="primary", fullscreen=False, children=[html.Div("Carregando evento...")])
     evento_para_exibir = evento_selecionado if isinstance(evento_selecionado, dict) else None
     if not evento_para_exibir:
         return html.P('Nenhum evento válido para exibir.')
+    if aba_ativa == "resumo":
+        return mostrar_resumo_evento(evento_para_exibir)
     # Use sempre a aba ativa como estação
     estacao_ativa = aba_ativa
     return mostrar_conteudo_estacao_filtrada(estacao_ativa, evento_para_exibir)
@@ -333,6 +430,16 @@ def mostrar_conteudo_estacao_filtrada(estacao_selecionada, evento):
         "fator_pico": f"{pico_maximo['valor']:.3f}".replace(".", ",") + " mg/mg"
     }
     dados_agrupados = dados_estacao.groupby("direcao").agg({"peak": "max", "valor": "max"}).reindex(["T", "R", "V"])
+    
+    # Adicionar data/hora do evento em destaque
+    data_hora_evento = evento.get('data_hora', None)
+    if data_hora_evento:
+        try:
+            data_hora_formatada = pd.to_datetime(data_hora_evento).strftime('%Y-%m-%d, %H:%M:%S')
+        except Exception:
+            data_hora_formatada = str(data_hora_evento)
+    else:
+        data_hora_formatada = 'Data/hora não disponível'
     
     # Gráficos de séries temporais
     if not df_data_consolidated.empty:
@@ -402,13 +509,28 @@ def mostrar_conteudo_estacao_filtrada(estacao_selecionada, evento):
                 
                 def criar_grafico_freq(direcao):
                     figura = go.Figure()
+                    x_freq = pd.Series(freq_filtradas["Freq."]).to_numpy()
+                    y_amp = pd.Series(freq_filtradas[direcao]).to_numpy()
                     figura.add_trace(go.Scatter(
-                        x=pd.Series(freq_filtradas["Freq."]).to_numpy(),
-                        y=pd.Series(freq_filtradas[direcao]).to_numpy(),
+                        x=x_freq,
+                        y=y_amp,
                         mode='lines',
                         line=dict(color='black', width=1),
                         name=direcao
                     ))
+                    # Adiciona bolinhas vermelhas nos 5 maiores picos
+                    try:
+                        picos_indices = np.argsort(y_amp)[-5:]
+                        picos_indices_ordenados = picos_indices[np.argsort(x_freq[picos_indices])]
+                        figura.add_trace(go.Scatter(
+                            x=x_freq[picos_indices_ordenados],
+                            y=y_amp[picos_indices_ordenados],
+                            mode='markers',
+                            marker=dict(color='red', size=10),
+                            name='Picos'
+                        ))
+                    except Exception as e:
+                        print(f"Erro ao marcar picos no gráfico de {direcao}: {e}")
                     figura.update_layout(
                         title=f"Espectro de Frequência - FFT Direção {direcao} (Evento: {evento_id})",
                         xaxis_title="Frequência (Hz)",
@@ -479,10 +601,11 @@ def mostrar_conteudo_estacao_filtrada(estacao_selecionada, evento):
         graficos_freq = html.P("Dados de frequência não carregados.")
     
     return html.Div([
+        # Remover o título do evento daqui
         html.H5("Aceleração Máxima:", style={"fontWeight": "bold", "marginTop": "15px"}),
         dbc.Table([
             html.Tbody([
-                html.Tr([html.Td("Estação:"), html.Td(aceleracao_maxima['estacao'])]),
+                #html.Tr([html.Td("Estação:"), html.Td(aceleracao_maxima['estacao'])]),
                 html.Tr([html.Td("Direção:"), html.Td(aceleracao_maxima['direcao'])]),
                 html.Tr([html.Td("Magnitude:"), html.Td(aceleracao_maxima['magnitude'])]),
                 html.Tr([html.Td("Fator de Pico:"), html.Td(aceleracao_maxima['fator_pico'])])
@@ -535,6 +658,22 @@ def redirecionar_para_reports(evento_selecionado):
 # Registra os callbacks
 register_map_callbacks(app)
 register_home_callbacks(app)
+
+# Novo callback para atualizar o título do evento dinamicamente
+@app.callback(
+    Output('titulo-evento-dinamico', 'children'),
+    Input('selected-event-store', 'data'),
+    prevent_initial_call=False
+)
+def atualizar_titulo_evento(evento):
+    if not evento:
+        return ""
+    data_hora_evento = evento.get('data_hora', None)
+    try:
+        data_hora_formatada = pd.to_datetime(data_hora_evento).strftime('%Y-%m-%d, %H:%M:%S')
+    except Exception:
+        data_hora_formatada = str(data_hora_evento)
+    return html.H4(f"Evento: {data_hora_formatada}", style={"color": "black", "margin": "0"})
 
 if __name__ == '__main__':
     app.run(debug=True)
