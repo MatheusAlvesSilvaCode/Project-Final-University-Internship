@@ -1044,8 +1044,13 @@ def sync_and_store_checklist(selected, all_selected, n_export, options):
 def exportar_relatorio_pdf(selected_stations, evento, zoom_data, freq_zoom_data, export_origem):
     if not selected_stations or not evento:
         raise PreventUpdate
-    # 1. Gerar imagens dos gráficos de séries de aceleração com zoom
     evento_id = str(evento['evento']).strip()
+    # Definir data_hora_formatada aqui
+    data_hora_evento = evento.get('data_hora', None)
+    try:
+        data_hora_formatada = pd.to_datetime(data_hora_evento).strftime('%Y-%m-%d, %H:%M:%S')
+    except Exception:
+        data_hora_formatada = str(data_hora_evento)
     imagens_series = {}
     imagens_freq = {}
     for estacao_nome, codigo_estacao in STATION_MAPPING.items():
@@ -1083,7 +1088,8 @@ def exportar_relatorio_pdf(selected_stations, evento, zoom_data, freq_zoom_data,
                         x0, x1 = zoom_data.get("x0"), zoom_data.get("x1")
                         if x0 is not None and x1 is not None:
                             fig.update_xaxes(range=[x0, x1])
-                    img_bytes = pio.to_image(fig, format="png")
+                    # Exportar como SVG (vetorial)
+                    img_bytes = pio.to_image(fig, format="svg")
                     imagens_series[f"{estacao_nome}-{direcao}"] = base64.b64encode(img_bytes).decode()
         # Espectros de frequência
         if not df_freq_consolidated.empty:
@@ -1125,9 +1131,9 @@ def exportar_relatorio_pdf(selected_stations, evento, zoom_data, freq_zoom_data,
                         x0, x1 = freq_zoom_data.get("x0"), freq_zoom_data.get("x1")
                         if x0 is not None and x1 is not None:
                             fig.update_xaxes(range=[x0, x1])
-                    img_bytes = pio.to_image(fig, format="png")
+                    # Exportar como SVG (vetorial)
+                    img_bytes = pio.to_image(fig, format="svg")
                     imagens_freq[f"{estacao_nome}-{direcao}"] = base64.b64encode(img_bytes).decode()
-    # 2. Montar HTML do relatório (resumo + todas as abas)
     html_parts = [
         "<!DOCTYPE html><html><head><meta charset='UTF-8'>"
         "<style>"
@@ -1135,7 +1141,7 @@ def exportar_relatorio_pdf(selected_stations, evento, zoom_data, freq_zoom_data,
         "h2, h3, h4 { margin-bottom: 10px; }"
         "p { margin: 8px 0; }"
         ".estacao-page { page-break-before: always; }"
-        ".grafico-img { width: 100%; height: 220px; object-fit: contain; margin-bottom: 10px; display: block; margin-left: auto; margin-right: auto; }"
+        ".grafico-img { width: 100%; display: block; margin-left: auto; margin-right: auto; margin-bottom: 10px; }"  # Removido height/object-fit
         ".centered { text-align: center; }"
         ".tabela-pdf { margin-left: auto; margin-right: auto; border-collapse: collapse; margin-bottom: 20px; }"
         ".tabela-pdf th, .tabela-pdf td { border: 1px solid #888; padding: 4px 10px; }"
@@ -1144,7 +1150,6 @@ def exportar_relatorio_pdf(selected_stations, evento, zoom_data, freq_zoom_data,
     # Resumo formatado e tabelas
     resumo_html = mostrar_resumo_evento(evento)
     def extract_tabelas(resumo_html):
-        # Extrai as tabelas de picos e fatores do html.Div do resumo
         tabelas = []
         if hasattr(resumo_html, 'children'):
             children = resumo_html.children
@@ -1158,7 +1163,6 @@ def exportar_relatorio_pdf(selected_stations, evento, zoom_data, freq_zoom_data,
                                 tabelas.append(cc)
         return tabelas
     def dash_table_to_html(table):
-        # Converte um componente Dash Table para HTML
         if not hasattr(table, 'props'):
             return ''
         props = table.props
@@ -1170,10 +1174,9 @@ def exportar_relatorio_pdf(selected_stations, evento, zoom_data, freq_zoom_data,
             body_html += '<tr>' + ''.join(f'<td>{cell.props["children"]}</td>' for cell in row.props['children']) + '</tr>'
         return f'<table class="tabela-pdf">{head_html}{body_html}</table>'
     # Centralizar resumo e tabelas
-    html_parts.append("<div class='centered'>")
+    html_parts.append("<div class='centered' style='page-break-after: always;'>")
     html_parts.append(f"<h2>RELATÓRIO DE MONITORAMENTO DA BARRAGEM DAVÕES</h2>")
     html_parts.append(f"<h3>Evento: {data_hora_formatada}</h3>")
-    # Extrair texto do resumo (sem tabelas)
     def extract_text_only(resumo_html):
         if hasattr(resumo_html, 'children'):
             children = resumo_html.children
@@ -1187,7 +1190,6 @@ def exportar_relatorio_pdf(selected_stations, evento, zoom_data, freq_zoom_data,
             return resumo_html
         return ''
     resumo_texto = extract_text_only(resumo_html)
-    # Quebra campos conhecidos em <p>
     campos = [
         "Data e Hora de Processamento dos Registos:",
         "Estações acima do Trigger:",
@@ -1198,32 +1200,33 @@ def exportar_relatorio_pdf(selected_stations, evento, zoom_data, freq_zoom_data,
     for campo in campos:
         resumo_texto = resumo_texto.replace(campo, f"</p><p><b>{campo}</b> ")
     html_parts.append(f"<div style='margin-bottom:20px;'><p>{resumo_texto}</p></div>")
-    # Tabelas centralizadas
+    # Tabelas centralizadas (mantém as tabelas na primeira página)
     for tabela in extract_tabelas(resumo_html):
         html_parts.append(dash_table_to_html(tabela))
     html_parts.append("</div>")
     # Páginas de gráficos de Série de Aceleração
     for estacao_nome in selected_stations:
         html_parts.append(f"<div class='estacao-page'><h2 class='centered'>Séries de Aceleração - Estação: {estacao_nome}</h2>")
+        # Gráficos empilhados verticalmente, ocupando toda a largura
+        html_parts.append("<div style='display: flex; flex-direction: column; justify-content: flex-start; align-items: center; width: 100%; margin-top: 20px;'>")
         for direcao in ["T", "R", "V"]:
             key = f"{estacao_nome}-{direcao}"
             if key in imagens_series:
-                html_parts.append(f"<div class='centered' style='margin-bottom: 35px;'>"
-                                  f"<h4 style='margin-bottom: 10px;'>Série de Aceleração - Direção {direcao}</h4>"
-                                  f"<img class='grafico-img' style='height:300px;margin-bottom:30px;' src='data:image/png;base64,{imagens_series[key]}' />"
+                html_parts.append(f"<div style='width: 95%; max-width: 800px; margin-bottom: 18px;'><h4 style='text-align:center; margin-bottom: 5px; font-size: 1.1em; font-weight: bold;'>Série de Aceleração - Direção {direcao}</h4>"
+                                  f"<img class='grafico-img' style='width:100%; height:320px; display:block; margin:0 auto;' src='data:image/svg+xml;base64,{imagens_series[key]}' />"
                                   f"</div>")
-        html_parts.append("</div>")
+        html_parts.append("</div></div>")
     # Páginas de gráficos de Espectro de Frequência
     for estacao_nome in selected_stations:
         html_parts.append(f"<div class='estacao-page'><h2 class='centered'>Espectros de Frequência - Estação: {estacao_nome}</h2>")
+        html_parts.append("<div style='display: flex; flex-direction: column; justify-content: flex-start; align-items: center; width: 100%; margin-top: 20px;'>")
         for direcao in ["T", "R", "V"]:
             key = f"{estacao_nome}-{direcao}"
             if key in imagens_freq:
-                html_parts.append(f"<div class='centered' style='margin-bottom: 35px;'>"
-                                  f"<h4 style='margin-bottom: 10px;'>Espectro de Frequência - Direção {direcao}</h4>"
-                                  f"<img class='grafico-img' style='height:300px;margin-bottom:30px;' src='data:image/png;base64,{imagens_freq[key]}' />"
+                html_parts.append(f"<div style='width: 95%; max-width: 800px; margin-bottom: 18px;'><h4 style='text-align:center; margin-bottom: 5px; font-size: 1.1em; font-weight: bold;'>Espectro de Frequência - Direção {direcao}</h4>"
+                                  f"<img class='grafico-img' style='width:100%; height:320px; display:block; margin:0 auto;' src='data:image/svg+xml;base64,{imagens_freq[key]}' />"
                                   f"</div>")
-        html_parts.append("</div>")
+        html_parts.append("</div></div>")
     html_parts.append("</body></html>")
     html_full = "".join(html_parts)
     # Geração do TXT de origem dos dados
