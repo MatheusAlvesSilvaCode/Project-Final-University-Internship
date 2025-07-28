@@ -1,17 +1,41 @@
+# Importa componentes do Dash para criar a interface e callbacks
 from dash import html, dcc, Input, Output, State, callback, ALL, callback_context, no_update
+# Importa componentes de Bootstrap para Dash
 import dash_bootstrap_components as dbc
+# Importa classes para manipulação de datas
 from datetime import datetime, timedelta
+# Importa exceção para evitar atualizações desnecessárias
 from dash.exceptions import PreventUpdate
+# Importa pandas para manipulação de dados
 import pandas as pd
+# Importa módulo para manipulação de arquivos e diretórios
 import os
+# Importa módulo para manipulação de arquivos JSON
 import json
+# Importa decorador para cache de funções
 from functools import lru_cache
+# Importa numpy para operações numéricas
 import numpy as np
+# Importa dash (não usado diretamente, mas pode ser útil para extensões)
 import dash
+# Importa função utilitária para classificar eventos
 from utils import classificar_evento
+# Função para obter o nome da estação a partir do código
+# Adicionando importação do STATION_MAPPING
 
-# Layout principal
+def get_station_name(code):
+    try:
+        from main import STATION_MAPPING  # Importa o dicionário de mapeamento do main.py
+        # Inverte o dicionário para mapear código para nome
+        code_to_name = {v: k for k, v in STATION_MAPPING.items()}
+        return code_to_name.get(code, code)  # Retorna o nome ou o próprio código se não encontrar
+    except Exception:
+        return code  # Se der erro, retorna o código original
+
+# Layout principal da página inicial
 layout = html.Div([
+    
+    # Card para filtro por tipo de evento
     dbc.Card([
         dbc.CardHeader("Filtrar por Tipo de Evento", style={"fontWeight": "bold"}),
         dbc.CardBody([
@@ -28,7 +52,7 @@ layout = html.Div([
             )
         ])
     ], className='mt-4 mb-4'),
-    
+    # Card para filtro por período
     dbc.Card([
         dbc.CardHeader("Filtrar por Período", style={"fontWeight": "bold"}),
         dbc.CardBody([
@@ -71,7 +95,7 @@ layout = html.Div([
             ])
         ])
     ], className='mb-4'),
-    
+    # Card para prévia dos eventos
     dbc.Card([
         dbc.CardHeader("Prévia dos Eventos", style={"fontWeight": "bold"}),
         dbc.CardBody([
@@ -84,7 +108,7 @@ layout = html.Div([
             })
         ])
     ], className='mb-4'),
-    
+    # Botão para buscar eventos
     dbc.Button(
         "Buscar Eventos",
         id='botao-buscar-eventos',
@@ -92,11 +116,13 @@ layout = html.Div([
         className='mb-4',
         n_clicks=0
     ),
-    
-    dcc.Location(id='redirecionar-relatorios', refresh=True),
+    # Armazena filtros selecionados
     dcc.Store(id='armazenar-filtros'),
+    # Armazena dados dos eventos filtrados
     dcc.Store(id='armazenar-dados-eventos')
 ])
+
+# Função para serializar eventos, garantindo que todos os campos são compatíveis com JSON
 
 def serializar_evento(evento):
     # Garante que todos os campos são serializáveis
@@ -105,25 +131,29 @@ def serializar_evento(evento):
         for k, v in evento.items()
     }
 
+# Função para registrar todos os callbacks da página inicial
+
 def registrar_callbacks(app):
+    # Callback para buscar eventos e selecionar um evento clicado
     @app.callback(
-        Output('armazenar-filtros', 'data'),
-        Output('event-data-store', 'data'),
-        Output('selected-event-store', 'data'),
-        Input('botao-buscar-eventos', 'n_clicks'),
-        Input({'type': 'card-previa-evento', 'index': ALL}, 'n_clicks_timestamp'),
-        State('filtro-tipo-evento', 'value'),
-        State('seletor-data', 'start_date'),
-        State('seletor-data', 'end_date'),
-        State('armazenar-dados-eventos', 'data'),
+        Output('armazenar-filtros', 'data'),  # Salva filtros aplicados
+        Output('event-data-store', 'data'),   # Salva lista de eventos filtrados
+        Output('selected-event-store', 'data'),  # Salva evento selecionado
+        Output('url', 'pathname'),  # Atualiza a URL para navegação
+        Input('botao-buscar-eventos', 'n_clicks'),  # Clique no botão buscar
+        Input({'type': 'card-previa-evento', 'index': ALL}, 'n_clicks_timestamp'),  # Clique em card de evento
+        State('filtro-tipo-evento', 'value'),  # Tipos de evento selecionados
+        State('seletor-data', 'start_date'),   # Data inicial
+        State('seletor-data', 'end_date'),     # Data final
+        State('armazenar-dados-eventos', 'data'),  # Dados dos eventos filtrados
         prevent_initial_call=True
     )
     def redirecionar_e_selecionar(n_clicks_buscar, n_clicks_previas_ts, tipos_evento, data_inicio, data_fim, eventos_filtrados):
-        ctx = callback_context
+        ctx = callback_context  # Contexto do callback para saber o que disparou
         print('DEBUG callback trigger:', ctx.triggered)
         if not ctx.triggered:
-            raise PreventUpdate
-        trigger_id = ctx.triggered[0]['prop_id']
+            raise PreventUpdate  # Se nada disparou, não faz nada
+        trigger_id = ctx.triggered[0]['prop_id']  # Identifica o que disparou
         # Se foi o botão de buscar eventos
         if trigger_id == 'botao-buscar-eventos.n_clicks':
             return (
@@ -133,7 +163,8 @@ def registrar_callbacks(app):
                     'data_fim': data_fim
                 },
                 eventos_filtrados if eventos_filtrados else [],
-                no_update
+                no_update,
+                no_update  # Não navega
             )
         # Se foi um card de prévia clicado
         if 'card-previa-evento' in trigger_id:
@@ -170,17 +201,19 @@ def registrar_callbacks(app):
                     return (
                         no_update,
                         eventos_filtrados,
-                        evento_serializado
+                        evento_serializado,
+                        '/reports'  # Navega para relatórios
                     )
-        raise PreventUpdate
+        raise PreventUpdate  # Se não for nenhum dos casos acima, não faz nada
 
+    # Callback para atualizar o período do filtro de datas conforme seleção rápida
     @app.callback(
         Output('seletor-data', 'start_date'),
         Output('seletor-data', 'end_date'),
         Input('filtro-rapido-data', 'value')
     )
     def atualizar_periodo(filtro_rapido):
-        hoje = datetime.now()
+        hoje = datetime.now()  # Data atual
         
         if filtro_rapido == 'hoje':
             return hoje.strftime('%Y-%m-%d'), hoje.strftime('%Y-%m-%d')
@@ -193,20 +226,21 @@ def registrar_callbacks(app):
         elif filtro_rapido == 'ano':
             inicio_ano = hoje.replace(month=1, day=1)
             return inicio_ano.strftime('%Y-%m-%d'), hoje.strftime('%Y-%m-%d')
-        return None, None
+        return None, None  # Caso personalizado
 
+    # Callback para atualizar a prévia dos eventos conforme filtros
     @app.callback(
-        Output('previa-eventos', 'children'),
-        Output('armazenar-dados-eventos', 'data'),
-        Input('filtro-tipo-evento', 'value'),
-        Input('seletor-data', 'start_date'),
-        Input('seletor-data', 'end_date'),
+        Output('previa-eventos', 'children'),  # Atualiza visualização dos cards
+        Output('armazenar-dados-eventos', 'data'),  # Salva dados dos eventos filtrados
+        Input('filtro-tipo-evento', 'value'),  # Tipos de evento selecionados
+        Input('seletor-data', 'start_date'),   # Data inicial
+        Input('seletor-data', 'end_date'),     # Data final
         prevent_initial_call=True
     )
     def atualizar_previa_eventos(tipos_evento, data_inicio, data_fim):
         try:
-            base_path = r'C:\Users\mathe\Desktop\Estágio\Final\events\2025'
-            eventos = []
+            base_path = r'C:\Users\mathe\Desktop\Estágio\Final\events\2025'  # Caminho base dos eventos
+            eventos = []  # Lista para armazenar eventos encontrados
             
             # Percorre todos os subdiretórios para encontrar os JSONs
             for root, _, files in os.walk(base_path):
@@ -238,7 +272,7 @@ def registrar_callbacks(app):
             print(f"Total de eventos carregados: {len(eventos)}")
             if not eventos:
                 return [html.Div("Nenhum evento encontrado nos arquivos JSON")], None
-            df_eventos = pd.DataFrame(eventos)
+            df_eventos = pd.DataFrame(eventos)  # Converte lista em DataFrame
             # Processamento das datas
             data_inicio = pd.to_datetime(data_inicio)
             data_fim = pd.to_datetime(data_fim) + timedelta(days=1)
@@ -305,10 +339,17 @@ def registrar_callbacks(app):
                 except Exception:
                     data_hora_str = to_scalar(linha['data_hora'])
                 evento_str = to_scalar(linha['evento'])
-                estacao_str = to_scalar(linha['estacao'])
+                # Mapeia os códigos das estações para os nomes
+                estacao_codigos = [e.strip() for e in to_scalar(linha['estacao']).split(',')]
+                estacao_nomes = ', '.join([get_station_name(codigo) for codigo in estacao_codigos])
                 classificacao_str = to_scalar(linha['classificacao'])
-                valor_str = to_scalar(linha['valor'])
-                trigger_str = to_scalar(linha['trigger'])
+                # Converte o valor de pico para mg (multiplica por 1000)
+                try:
+                    valor_mg = float(to_scalar(linha['valor'])) * 1000
+                    valor_str = f"{valor_mg:.2f} mg"
+                except Exception:
+                    valor_str = to_scalar(linha['valor'])
+                # trigger_str = to_scalar(linha['trigger'])  # Não mostrar a data extra
                 item = html.Div(
                     dbc.Card(
                         [
@@ -330,10 +371,10 @@ def registrar_callbacks(app):
                                 ], style={"display": "flex", "alignItems": "center"})
                             ),
                             dbc.CardBody([
-                                html.P("Evento: " + evento_str),
-                                html.P("Estações: " + estacao_str),
-                                html.P("Pico: " + valor_str + " m/s²"),
-                                html.P(trigger_str),
+                                # Removido: html.P("Evento: " + evento_str),
+                                html.P("Estações: " + estacao_nomes),
+                                # Removido: html.P("Pico: " + valor_str),
+                                # Removido: html.P(trigger_str),
                             ])
                         ],
                         style={
